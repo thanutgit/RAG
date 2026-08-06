@@ -1,5 +1,5 @@
 # Local RAG for a Personal Knowledge Base
-![CI](https://github.com/thanutgit/<ชื่อ-repo>/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/thanutgit/RAG/actions/workflows/ci.yml/badge.svg)
 
 A question-answering system over your own documents. Reads Markdown, PDF, Word, Excel, and CSV. Everything runs locally — nothing is sent to an external API.
 
