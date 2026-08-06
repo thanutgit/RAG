@@ -1,0 +1,96 @@
+# Obsidian RAG — ทั้งระบบใน container
+#
+# ต่างจาก docker-compose.yml ตรงที่รัน FastAPI ใน container ด้วย
+# และไม่เปิดพอร์ต database ออกสู่ภายนอก
+#
+# Usage:
+#   docker compose -f docker-compose.prod.yml up -d --build
+
+services:
+  api:
+    build: .
+    container_name: obsidian-rag-api
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      # ใน container ใช้ชื่อ service เป็น hostname ไม่ใช่ localhost
+      QDRANT_HOST: qdrant
+      QDRANT_HTTP_PORT: 6333
+      QDRANT_API_KEY: ${QDRANT_API_KEY:?ต้องตั้ง API key ตอน deploy จริง}
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-obsidian_notes}
+
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-obsidian_rag}
+
+      # Ollama รันบน host ไม่ใช่ใน container (ต้องใช้ GPU)
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_LLM_MODEL: ${OLLAMA_LLM_MODEL:-qwen3:8b}
+      OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-bge-m3}
+      EMBED_DIM: ${EMBED_DIM:-1024}
+
+      OBSIDIAN_VAULT_PATH: /vault
+      CHUNK_SIZE: ${CHUNK_SIZE:-800}
+      CHUNK_OVERLAP: ${CHUNK_OVERLAP:-100}
+      TOP_K: ${TOP_K:-5}
+      SCORE_THRESHOLD: ${SCORE_THRESHOLD:-0.45}
+    volumes:
+      # mount แบบอ่านอย่างเดียว — ระบบไม่มีเหตุผลต้องเขียนทับโน้ตของผู้ใช้
+      - ${OBSIDIAN_VAULT_PATH:?ต้องระบุ path ของ vault}:/vault:ro
+    extra_hosts:
+      # ให้ container เรียก Ollama บน host ได้ (Linux ต้องมีบรรทัดนี้)
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    container_name: obsidian-rag-qdrant
+    restart: unless-stopped
+    # ไม่เปิดพอร์ตออกภายนอก — เข้าถึงได้เฉพาะจาก container อื่นในเครือข่ายเดียวกัน
+    expose:
+      - "6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      QDRANT__LOG_LEVEL: INFO
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:?ต้องตั้ง API key ตอน deploy จริง}
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: obsidian-rag-postgres
+    restart: unless-stopped
+    expose:
+      - "5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-obsidian_rag}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB:-obsidian_rag}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  qdrant_data:
+    name: obsidian_rag_qdrant_data
+  postgres_data:
+    name: obsidian_rag_postgres_data

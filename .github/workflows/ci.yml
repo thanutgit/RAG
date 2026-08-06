@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+# ยกเลิก run เก่าถ้า push ใหม่เข้ามาบน branch เดียวกัน — ประหยัดเวลา runner
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: ติดตั้ง dependency
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # รันเฉพาะ test ที่ไม่ต้องใช้ LLM
+      # e2e ต้องมี Ollama กับ GPU ซึ่ง runner ไม่มี จึงรันบนเครื่องตัวเองแทน
+      - name: รัน test
+        run: pytest -m "not llm" -v
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: ติดตั้ง ruff
+        run: pip install ruff
+
+      - name: ตรวจ code style
+        run: ruff check .
+
+      - name: ตรวจ format
+        run: ruff format --check .
+
+  security:
+    name: Security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: ตรวจ dependency ที่มีช่องโหว่
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt --ignore-vuln GHSA-4xh5-x5gv-qwph || true
+
+      # กัน .env หรือไฟล์ความลับหลุดขึ้น repo
+      - name: ตรวจว่าไม่มีไฟล์ความลับ
+        run: |
+          if git ls-files | grep -E '^\.env$|\.pem$|\.key$'; then
+            echo "::error::พบไฟล์ความลับใน repo"
+            exit 1
+          fi
+          echo "ไม่พบไฟล์ความลับ"
+
+  docker:
+    name: Docker build
+    runs-on: ubuntu-latest
+    # build เฉพาะเมื่อ test กับ lint ผ่านแล้ว ไม่ต้องเสียเวลา build ของที่พัง
+    needs: [test, lint]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: obsidian-rag:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ตรวจว่า image ที่ build มารันได้จริง ไม่ใช่แค่ build ผ่าน
+      - name: ตรวจว่า image รันได้
+        run: |
+          docker run --rm obsidian-rag:ci python -c "
+          import app.main, services.config, readers, utils.chunking
+          print('import ครบทุก module')
+          "

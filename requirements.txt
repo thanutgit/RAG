@@ -1,0 +1,40 @@
+# Obsidian Local RAG — Python dependencies
+#
+# ติดตั้ง: pip install -r requirements.txt
+#
+# หมายเหตุเรื่อง version:
+# ค่าด้านล่างเป็นตัวอย่าง ให้ล็อกเป็นเวอร์ชันที่ใช้จริงในเครื่องด้วยคำสั่งใน README
+# qdrant-client ต้อง major.minor ใกล้เคียงกับ Qdrant server image ใน docker-compose.yml
+# (server = v1.12.4, client ที่ใกล้ที่สุดบน PyPI = 1.12.2)
+
+# --- Web framework ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+
+# --- Vector database ---
+qdrant-client==1.12.2
+
+# --- Relational database ---
+psycopg2-binary==2.9.10
+
+# --- HTTP client (เรียก Ollama API) ---
+requests==2.32.3
+
+# --- Configuration ---
+python-dotenv==1.0.1
+
+# --- File readers ---
+pdfplumber==0.11.4           # PDF (ดึงข้อความโดยใช้พิกัด แม่นกว่า pypdf มาก)
+python-docx==1.1.2           # Word
+openpyxl==3.1.5              # Excel
+
+# --- OCR (ไม่บังคับ — จำเป็นเฉพาะ PDF ที่เป็นไฟล์สแกน) ---
+# ต้องติดตั้งโปรแกรมระดับระบบก่อนด้วย:
+#   sudo apt install tesseract-ocr tesseract-ocr-tha poppler-utils
+pytesseract==0.3.13
+pdf2image==1.17.0
+
+# --- Dev tools ---
+pytest==8.3.4
+ruff==0.8.6

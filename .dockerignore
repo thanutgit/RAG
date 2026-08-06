@@ -1,0 +1,32 @@
+# กันไฟล์ที่ไม่ควรเข้า image — ทั้งเรื่องขนาดและความปลอดภัย
+.git/
+.github/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ความลับ ห้ามเข้า image เด็ดขาด
+.env
+.env.*
+!.env.example
+
+# ไฟล์ที่ไม่ต้องใช้ตอน runtime
+tests/
+docs/
+test-csv/
+vault-notes/
+PLAN.md
+TROUBLESHOOTING.md
+*.md
+!README.md
+
+data/
+logs/
+*.log
+.DS_Store
+.vscode/
+.idea/

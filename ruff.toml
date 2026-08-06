@@ -1,0 +1,25 @@
+# ตั้งค่าให้ผ่อนปรน เพราะเป้าหมายคือจับ bug ไม่ใช่บังคับ style
+line-length = 110
+target-version = "py312"
+
+exclude = [".venv", "__pycache__", ".pytest_cache"]
+
+[lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes — จับตัวแปรไม่ได้ใช้ import ซ้ำ
+    "I",    # isort — เรียง import
+    "B",    # bugbear — จับ pattern ที่มักเป็นบั๊ก
+    "UP",   # pyupgrade
+]
+ignore = [
+    "E501",   # ความยาวบรรทัด — คอมเมนต์ภาษาไทยนับตัวอักษรไม่ตรงกับความกว้างจริง
+    "B008",   # function call ใน default arg — FastAPI ใช้ pattern นี้ปกติ
+]
+
+[lint.per-file-ignores]
+# test ใช้ assert เป็นเรื่องปกติ และชื่อ fixture อาจดูเหมือนไม่ได้ใช้
+"tests/*" = ["B011"]
+
+[format]
+quote-style = "double"

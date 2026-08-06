@@ -1,0 +1,587 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>คลังโน้ต — ถามได้ทุกอย่างที่เคยจดไว้</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600&family=IBM+Plex+Sans+Thai+Looped:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    /* กระดาษบัตรรายการ: เทาอมเขียวเย็น ไม่ใช่ครีม */
+    --paper:#E9EBE4;
+    --card:#FAFAF7;
+    --ink:#1A1E22;
+    --ink-soft:#5A6169;
+    --rule:#C6CABE;
+    --stamp:#8C2F39;        /* หมึกตราประทับห้องสมุด */
+    --thread:#2E5A5E;       /* เขียวอมน้ำเงิน ใช้กับแถบวัดค่า */
+    --shadow:0 1px 0 rgba(26,30,34,.06), 0 6px 16px -10px rgba(26,30,34,.35);
+    --rail:264px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--paper); color:var(--ink);
+    font-family:"IBM Plex Sans Thai",system-ui,sans-serif;
+    font-size:16px; line-height:1.7;
+    display:grid; grid-template-columns:var(--rail) 1fr;
+  }
+  /* เส้นบรรทัดจาง ๆ เหมือนกระดาษสมุด */
+  body::before{
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
+    background:repeating-linear-gradient(transparent 0 31px, rgba(26,30,34,.035) 31px 32px);
+  }
+
+  /* ---------------- rail ---------------- */
+  .rail{
+    position:relative; z-index:1;
+    border-right:1px solid var(--rule);
+    background:rgba(250,250,247,.5);
+    padding:28px 22px; display:flex; flex-direction:column; gap:26px;
+    height:100vh; position:sticky; top:0; overflow-y:auto;
+  }
+  .brand{display:flex; flex-direction:column; gap:2px}
+  .brand b{font-size:1.05rem; font-weight:600; letter-spacing:.01em}
+  .brand span{font-size:.78rem; color:var(--ink-soft)}
+
+  .rail h2{
+    font-family:"IBM Plex Sans Thai Looped",serif;
+    font-size:.72rem; font-weight:600; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--ink-soft);
+    margin:0 0 10px; padding-bottom:6px; border-bottom:1px solid var(--rule);
+  }
+  .stat{display:flex; align-items:baseline; gap:8px}
+  .stat b{font-size:1.6rem; font-weight:600; font-variant-numeric:tabular-nums; line-height:1}
+  .stat span{font-size:.8rem; color:var(--ink-soft)}
+  .dot{width:7px; height:7px; border-radius:50%; display:inline-block; margin-right:7px}
+  .dot.ok{background:var(--thread)}
+  .dot.down{background:var(--stamp)}
+  .status{font-size:.82rem; color:var(--ink-soft); display:flex; align-items:center}
+
+  label.field{display:block; font-size:.82rem; color:var(--ink-soft); margin-bottom:8px}
+  input[type=range]{width:100%; accent-color:var(--thread)}
+  .hint{font-size:.74rem; color:var(--ink-soft); line-height:1.5; margin-top:6px}
+
+  button{
+    font:inherit; font-size:.88rem; cursor:pointer;
+    background:var(--card); color:var(--ink);
+    border:1px solid var(--rule); border-radius:3px;
+    padding:9px 14px; width:100%;
+    transition:background .15s, border-color .15s, transform .05s;
+  }
+  button:hover:not(:disabled){background:#fff; border-color:var(--ink-soft)}
+  button:active:not(:disabled){transform:translateY(1px)}
+  button:disabled{opacity:.5; cursor:wait}
+  button:focus-visible, textarea:focus-visible{outline:2px solid var(--thread); outline-offset:2px}
+  button.quiet{background:transparent; border-color:transparent; color:var(--ink-soft); text-align:left; padding-left:0}
+  button.quiet:hover{background:transparent; color:var(--stamp)}
+
+  .sync-out{font-size:.78rem; color:var(--ink-soft); margin-top:9px; line-height:1.6}
+  .sync-out.err{color:var(--stamp)}
+
+  /* ---------------- main ---------------- */
+  .main{position:relative; z-index:1; display:flex; flex-direction:column; height:100vh}
+  .scroll{flex:1; overflow-y:auto; padding:56px 32px 24px}
+  .inner{max-width:680px; margin:0 auto}
+
+  .lede h1{
+    font-size:1.9rem; font-weight:600; letter-spacing:-.01em; margin:0 0 10px; line-height:1.3;
+  }
+  .lede p{color:var(--ink-soft); margin:0 0 28px; max-width:52ch}
+  .samples{display:flex; flex-wrap:wrap; gap:8px}
+  .samples button{width:auto; font-size:.83rem; padding:7px 13px; border-radius:999px; color:var(--ink-soft)}
+
+  .turn{margin-bottom:38px}
+  .asked{
+    font-family:"IBM Plex Sans Thai Looped",serif;
+    font-size:1.15rem; font-weight:600; line-height:1.6;
+    padding-left:16px; border-left:3px solid var(--stamp); margin-bottom:20px;
+  }
+  .answer{
+    background:var(--card);
+    border:1px solid var(--rule);
+    border-radius:3px;
+    box-shadow:var(--shadow);
+    padding:20px 22px;
+    font-size:1.04rem;
+    line-height:1.8;
+  }
+  .answer > *:first-child{margin-top:0}
+  .answer > *:last-child{margin-bottom:0}
+  .answer h2,.answer h3{
+    font-family:"IBM Plex Sans Thai Looped",serif;
+    font-size:1rem; font-weight:600; margin:1.3em 0 .5em;
+    padding-bottom:.3em; border-bottom:1px solid var(--rule);
+  }
+  .answer p{margin:0 0 .85em}
+  .answer ul,.answer ol{margin:0 0 .9em; padding-left:1.6em}
+  .answer li{margin-bottom:.4em}
+  .answer li::marker{color:var(--stamp); font-variant-numeric:tabular-nums}
+  .answer strong{font-weight:600}
+  .answer code{
+    font-family:ui-monospace,monospace; font-size:.9em;
+    background:rgba(26,30,34,.06); padding:.12em .38em; border-radius:2px;
+  }
+  .answer.pending{white-space:pre-wrap; color:var(--ink-soft); font-style:italic; box-shadow:none; background:transparent; border-style:dashed}
+  .answer.failed{color:var(--stamp); border-color:var(--stamp); background:transparent; box-shadow:none}
+
+  /* ---------------- บัตรรายการ (signature) ---------------- */
+  .slips{margin-top:14px}
+  .slips > summary{
+    font-size:.8rem; color:var(--ink-soft); cursor:pointer; list-style:none;
+    display:inline-flex; align-items:center; gap:6px; padding:4px 0;
+  }
+  .slips > summary::-webkit-details-marker{display:none}
+  .slips > summary::before{content:"▸"; color:var(--stamp); font-size:.7rem}
+  .slips[open] > summary::before{content:"▾"}
+  .slips > summary:hover{color:var(--ink)}
+  .slips-body{padding-top:10px}
+  .slip{
+    background:transparent; border:0; border-top:1px solid var(--rule);
+    border-radius:0; box-shadow:none; padding:10px 2px; margin-bottom:0;
+    animation:deal .32s ease-out both;
+  }
+  @keyframes deal{from{opacity:0; transform:translateY(5px)} to{opacity:1; transform:none}}
+  @media (prefers-reduced-motion:reduce){ .slip{animation:none} }
+
+  .slip-top{display:flex; align-items:center; gap:12px}
+  .slip-name{
+    font-family:"IBM Plex Sans Thai Looped",serif; font-size:.86rem;
+    flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .slip-head{color:var(--ink-soft); font-weight:400}
+  /* ไม้บรรทัดวัดความมั่นใจ: 10 ขีด ขีดที่ติดสีคือระดับ score */
+  .ruler{display:flex; gap:2px; flex:0 0 72px}
+  .ruler i{flex:1; height:8px; background:rgba(26,30,34,.1); border-radius:1px}
+  .ruler i.on{background:var(--thread)}
+  .slip-score{
+    flex:0 0 3.4rem; text-align:right; font-variant-numeric:tabular-nums;
+    font-size:.82rem; color:var(--ink-soft);
+  }
+  .slip details{margin-top:9px}
+  .slip summary{
+    font-size:.78rem; color:var(--ink-soft); cursor:pointer; list-style:none;
+    border-top:1px dashed var(--rule); padding-top:8px;
+  }
+  .slip summary::-webkit-details-marker{display:none}
+  .slip summary::before{content:"+ "; color:var(--stamp)}
+  .slip details[open] summary::before{content:"– "}
+  .slip pre{
+    margin:9px 0 0; white-space:pre-wrap; font-family:inherit;
+    font-size:.84rem; color:var(--ink-soft); line-height:1.65;
+  }
+  .meta{font-size:.76rem; color:var(--ink-soft); margin-top:11px; display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+  .badge{
+    font-family:"IBM Plex Sans Thai Looped",serif; font-size:.7rem; letter-spacing:.06em;
+    padding:2px 8px; border:1px solid var(--rule); border-radius:2px; background:var(--card);
+  }
+  .badge.sql{border-color:var(--thread); color:var(--thread)}
+  .rtable{margin-top:14px; border:1px solid var(--rule); border-radius:2px; background:var(--card)}
+  .rtable-head{
+    display:flex; justify-content:space-between; align-items:center; gap:10px;
+    padding:9px 12px; border-bottom:1px solid var(--rule);
+    font-family:"IBM Plex Sans Thai Looped",serif; font-size:.78rem; color:var(--ink-soft);
+  }
+  .rtable-scroll{max-height:420px; overflow:auto}
+  .rtable table{border-collapse:collapse; width:100%; font-size:.84rem}
+  .rtable th{
+    position:sticky; top:0; background:var(--card); text-align:left; font-weight:600;
+    padding:7px 12px; border-bottom:1px solid var(--rule); white-space:nowrap;
+  }
+  .rtable td{padding:6px 12px; border-bottom:1px solid rgba(198,202,190,.4); white-space:nowrap}
+  .rtable tr:last-child td{border-bottom:0}
+  .rtable td.num{text-align:right; font-variant-numeric:tabular-nums}
+  .rtable-foot{padding:8px 12px; font-size:.76rem; color:var(--ink-soft); border-top:1px solid var(--rule)}
+  .copybtn{
+    font-size:.74rem; padding:3px 9px; width:auto; border-radius:2px;
+    background:transparent; border:1px solid var(--rule); color:var(--ink-soft);
+  }
+  details.sqlbox{margin-top:10px}
+  details.sqlbox summary{
+    font-size:.78rem; color:var(--ink-soft); cursor:pointer; list-style:none;
+    display:inline-flex; align-items:center; gap:6px;
+  }
+  details.sqlbox summary::-webkit-details-marker{display:none}
+  details.sqlbox summary::before{content:"▸"; color:var(--thread); font-size:.7rem}
+  details.sqlbox[open] summary::before{content:"▾"}
+  details.sqlbox pre{
+    margin:8px 0 0; padding:10px 12px; background:var(--card);
+    border:1px solid var(--rule); border-radius:2px; overflow-x:auto;
+    font-family:ui-monospace,monospace; font-size:.8rem; color:var(--ink-soft); line-height:1.6;
+  }
+
+  /* ---------------- ช่องพิมพ์ ---------------- */
+  .composer{border-top:1px solid var(--rule); background:rgba(250,250,247,.85); backdrop-filter:blur(6px); padding:16px 32px 22px}
+  .composer .inner{display:flex; gap:10px; align-items:flex-end}
+  textarea{
+    flex:1; font:inherit; resize:none; min-height:48px; max-height:180px;
+    padding:12px 14px; border:1px solid var(--rule); border-radius:3px;
+    background:var(--card); color:var(--ink);
+  }
+  .composer button{width:auto; padding:12px 20px; background:var(--ink); color:var(--paper); border-color:var(--ink)}
+  .composer button:hover:not(:disabled){background:#000; border-color:#000}
+
+  @media (max-width:800px){
+    body{grid-template-columns:1fr}
+    .rail{height:auto; position:static; border-right:0; border-bottom:1px solid var(--rule); flex-direction:row; flex-wrap:wrap; gap:18px 26px; padding:16px 20px}
+    .rail h2{border:0; padding:0; margin-bottom:4px}
+    .rail section{flex:1 1 150px}
+    .main{height:auto}
+    .scroll{padding:32px 20px 16px}
+    .composer{padding:14px 20px 18px}
+  }
+</style>
+</head>
+<body>
+
+<aside class="rail">
+  <div class="brand">
+    <b>คลังโน้ต</b>
+    <span>ถามได้ทุกอย่างที่เคยจดไว้</span>
+  </div>
+
+  <section>
+    <h2>คลัง</h2>
+    <div class="stat"><b id="count">—</b><span>ส่วนข้อความ</span></div>
+    <div class="status" id="status"><span class="dot" ></span>กำลังตรวจสอบ</div>
+  </section>
+
+  <section>
+    <h2>การค้นหา</h2>
+    <label class="field" for="topk">ดึงมาอ้างอิง <b id="topkVal">5</b> ส่วน</label>
+    <input type="range" id="topk" min="1" max="10" value="5">
+    <p class="hint">ดึงมามากได้บริบทกว้างขึ้น แต่เสี่ยงมีเนื้อหาไม่เกี่ยวปนเข้ามา</p>
+  </section>
+
+  <section>
+    <h2>ซิงก์</h2>
+    <button id="syncBtn">อ่านโน้ตใหม่</button>
+    <p class="hint">ไฟล์ที่ไม่เปลี่ยนแปลงจะถูกข้าม</p>
+    <div class="sync-out" id="syncOut"></div>
+  </section>
+
+  <section>
+    <button class="quiet" id="resetBtn">เริ่มบทสนทนาใหม่</button>
+  </section>
+</aside>
+
+<main class="main">
+  <div class="scroll" id="scroll">
+    <div class="inner" id="thread">
+      <div class="lede" id="lede">
+        <h1>ถามโน้ตของคุณ</h1>
+        <p>ระบบจะค้นหาส่วนที่เกี่ยวข้องจากคลังโน้ต แล้วตอบจากเนื้อหานั้นเท่านั้น
+           ถ้าไม่มีข้อมูลที่ตอบได้ ระบบจะบอกตรง ๆ แทนการเดา</p>
+        <div class="samples" id="samples"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="composer">
+    <div class="inner">
+      <textarea id="input" rows="1" placeholder="พิมพ์คำถาม แล้วกด Enter"></textarea>
+      <button id="sendBtn">ถาม</button>
+    </div>
+  </div>
+</main>
+
+<script>
+const API = location.origin;
+let sessionId = crypto.randomUUID();
+let busy = false;
+
+const $ = s => document.querySelector(s);
+const thread = $('#thread'), scroll = $('#scroll'), input = $('#input');
+
+/* ---------- Markdown -> HTML แบบย่อ ----------
+   รองรับเฉพาะที่ LLM ใช้จริง: หัวข้อ, ตัวหนา/เอียง, code, รายการมีเลข/ไม่มีเลข
+   escape HTML ก่อนเสมอ เพื่อไม่ให้เนื้อหาจากโมเดลกลายเป็น markup ที่รันได้ */
+function esc(t){
+  return t.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function inline(t){
+  return esc(t)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+    /* เก็บกวาด ** หรือ * ที่ค้างอยู่ กรณีคำตอบถูกตัดกลางก่อนปิด markup */
+    .replace(/\*{1,2}/g, '');
+}
+
+function markdown(src){
+  const out = [];
+  let list = null;          // 'ul' | 'ol' | null
+  let para = [];
+
+  const flushPara = () => {
+    if(para.length){ out.push(`<p>${inline(para.join(' '))}</p>`); para = []; }
+  };
+  const closeList = () => { if(list){ out.push(`</${list}>`); list = null; } };
+
+  for(const raw of src.split('\n')){
+    const line = raw.trim();
+
+    if(!line){ flushPara(); closeList(); continue; }
+
+    const heading = line.match(/^(#{1,6})\s+(.*)$/);
+    if(heading){
+      flushPara(); closeList();
+      const lvl = Math.min(3, Math.max(2, heading[1].length));  // จำกัด h2-h3 ไม่ให้ชน h1 ของหน้า
+      out.push(`<h${lvl}>${inline(heading[2])}</h${lvl}>`);
+      continue;
+    }
+
+    const ordered = line.match(/^\d+[.)]\s+(.*)$/);
+    const bullet  = line.match(/^[-*+]\s+(.*)$/);
+    if(ordered || bullet){
+      flushPara();
+      const want = ordered ? 'ol' : 'ul';
+      if(list !== want){ closeList(); out.push(`<${want}>`); list = want; }
+      out.push(`<li>${inline((ordered||bullet)[1])}</li>`);
+      continue;
+    }
+
+    closeList();
+    para.push(line);
+  }
+  flushPara(); closeList();
+  return out.join('');
+}
+
+/* ---------- สถานะระบบ ---------- */
+async function checkHealth(){
+  const status = $('#status');
+  try{
+    const r = await fetch(`${API}/health`);
+    if(!r.ok) throw new Error();
+    const d = await r.json();
+    $('#count').textContent = d.chunks_in_db.toLocaleString('th-TH');
+    status.innerHTML = '<span class="dot ok"></span>เชื่อมต่อแล้ว';
+  }catch{
+    $('#count').textContent = '—';
+    status.innerHTML = '<span class="dot down"></span>ต่อ backend ไม่ได้';
+  }
+}
+
+/* ---------- คำถามตัวอย่าง ---------- */
+['สรุปโน้ตล่าสุดให้หน่อย','มีบันทึกเรื่องอะไรบ้าง'].forEach(t=>{
+  const b = document.createElement('button');
+  b.textContent = t;
+  b.onclick = () => { input.value = t; send(); };
+  $('#samples').appendChild(b);
+});
+
+/* ---------- ส่งคำถาม ---------- */
+async function send(){
+  const q = input.value.trim();
+  if(!q || busy) return;
+  busy = true; $('#sendBtn').disabled = true;
+  input.value = ''; input.style.height = 'auto';
+  $('#lede')?.remove();
+
+  const turn = document.createElement('article');
+  turn.className = 'turn';
+  turn.innerHTML = `<div class="asked"></div><div class="answer pending">กำลังค้นหาและเรียบเรียงคำตอบ…</div>`;
+  turn.querySelector('.asked').textContent = q;
+  thread.appendChild(turn);
+  scroll.scrollTop = scroll.scrollHeight;
+
+  try{
+    const r = await fetch(`${API}/query`,{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({question:q, top_k:+$('#topk').value, session_id:sessionId})
+    });
+    if(!r.ok){
+      const e = await r.json().catch(()=>({}));
+      throw new Error(e.detail || `เซิร์ฟเวอร์ตอบ ${r.status}`);
+    }
+    render(turn, await r.json());
+  }catch(err){
+    const a = turn.querySelector('.answer');
+    a.className = 'answer failed';
+    a.textContent = err.message.includes('fetch')
+      ? 'ต่อ backend ไม่ได้ — ตรวจว่า uvicorn ทำงานอยู่ที่พอร์ต 8000 หรือไม่'
+      : err.message;
+  }finally{
+    busy = false; $('#sendBtn').disabled = false;
+    scroll.scrollTop = scroll.scrollHeight;
+  }
+}
+
+/* ---------- ตารางผลลัพธ์จาก SQL ---------- */
+function renderTable(t){
+  const box = document.createElement('div');
+  box.className = 'rtable';
+
+  const shown = t.rows.length;
+  const label = t.truncated
+    ? `แสดง ${shown.toLocaleString('th-TH')} จาก ${t.total_rows.toLocaleString('th-TH')} แถว`
+    : `${t.total_rows.toLocaleString('th-TH')} แถว`;
+
+  box.innerHTML = `<div class="rtable-head"><span>${label}</span>
+      <span style="display:flex;gap:6px">
+        <button class="copybtn">คัดลอก</button>
+        <button class="copybtn xlsx">ดาวน์โหลด Excel</button>
+      </span></div>
+    <div class="rtable-scroll"><table><thead><tr></tr></thead><tbody></tbody></table></div>`;
+
+  const tr = box.querySelector('thead tr');
+  t.columns.forEach(c => {
+    const th = document.createElement('th');
+    th.textContent = c;
+    tr.appendChild(th);
+  });
+
+  const tbody = box.querySelector('tbody');
+  t.rows.forEach(row => {
+    const rtr = document.createElement('tr');
+    row.forEach(v => {
+      const td = document.createElement('td');
+      const val = v == null ? '' : v;
+      td.textContent = val;
+      /* ตัวเลขชิดขวาให้เทียบค่ากันได้ง่าย */
+      if(val !== '' && !isNaN(val) && val.trim() !== '') td.className = 'num';
+      rtr.appendChild(td);
+    });
+    tbody.appendChild(rtr);
+  });
+
+  box.querySelector('.copybtn').onclick = e => {
+    const esc = v => {
+      const s = v == null ? '' : String(v);
+      return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+    };
+    const csv = [t.columns.map(esc).join(','), ...t.rows.map(r => r.map(esc).join(','))].join('\n');
+    navigator.clipboard.writeText(csv).then(() => {
+      e.target.textContent = 'คัดลอกแล้ว';
+      setTimeout(() => e.target.textContent = 'คัดลอก', 1600);
+    });
+  };
+
+  box.querySelector('.xlsx').onclick = async e => {
+    const btn = e.target;
+    btn.disabled = true; btn.textContent = 'กำลังสร้าง…';
+    try{
+      const r = await fetch(`${API}/export/xlsx`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({columns:t.columns, rows:t.rows, filename:'query_result'})
+      });
+      if(!r.ok) throw new Error('สร้างไฟล์ไม่สำเร็จ');
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'query_result.xlsx';
+      a.click();
+      URL.revokeObjectURL(url);
+      btn.textContent = 'ดาวน์โหลดแล้ว';
+    }catch(err){
+      btn.textContent = 'ผิดพลาด';
+    }finally{
+      btn.disabled = false;
+      setTimeout(() => btn.textContent = 'ดาวน์โหลด Excel', 1800);
+    }
+  };
+
+  return box;
+}
+
+/* ---------- แสดงคำตอบ + บัตรรายการ ---------- */
+function render(turn, d){
+  const a = turn.querySelector('.answer');
+  a.className = 'answer'; a.innerHTML = markdown(d.answer);
+
+  if(d.sources?.length){
+    const box = document.createElement('details');
+    box.className = 'slips';
+    box.innerHTML = `<summary>ดูแหล่งอ้างอิง ${d.sources.length} ส่วน</summary><div class="slips-body"></div>`;
+    const body = box.querySelector('.slips-body');
+
+    d.sources.forEach(s=>{
+      const lit = Math.round(Math.max(0, Math.min(1, s.score)) * 10);
+      const slip = document.createElement('div');
+      slip.className = 'slip';
+      slip.innerHTML =
+        `<div class="slip-top">
+           <span class="slip-name"><span class="slip-file"></span><span class="slip-head"></span></span>
+           <span class="ruler">${Array.from({length:10},(_,i)=>`<i class="${i<lit?'on':''}"></i>`).join('')}</span>
+           <span class="slip-score">${s.score.toFixed(3)}</span>
+         </div>
+         <details><summary>ดูข้อความที่ดึงมา</summary><pre></pre></details>`;
+      slip.querySelector('.slip-file').textContent = s.file_path;
+      if(s.heading){
+        const parts = s.heading.split(' > ');
+        slip.querySelector('.slip-head').textContent = ' · ' + parts[parts.length - 1];
+      }
+      slip.querySelector('pre').textContent = s.text_preview;
+      body.appendChild(slip);
+    });
+    turn.appendChild(box);
+  }
+
+  if(d.table && d.table.rows.length){
+    turn.appendChild(renderTable(d.table));
+  }
+
+  if(d.mode === 'sql' && d.sql){
+    const box = document.createElement('details');
+    box.className = 'sqlbox';
+    box.innerHTML = `<summary>ดูคำสั่งที่ใช้คำนวณ</summary><pre></pre>`;
+    box.querySelector('pre').textContent = d.sql;
+    turn.appendChild(box);
+  }
+
+  if(d.rewritten_question){
+    const rw = document.createElement('div');
+    rw.className = 'meta';
+    rw.style.marginTop = '8px';
+    rw.textContent = 'ตีความคำถามเป็น: ' + d.rewritten_question;
+    turn.appendChild(rw);
+  }
+
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+  const badge = d.mode === 'sql'
+    ? '<span class="badge sql">คำนวณจากข้อมูลทั้งหมด</span>'
+    : '<span class="badge">ค้นจากเนื้อหา</span>';
+  meta.innerHTML = badge + `<span>ใช้เวลา ${(d.latency_ms/1000).toFixed(1)} วินาที</span>`;
+  turn.appendChild(meta);
+}
+
+/* ---------- ซิงก์ ---------- */
+$('#syncBtn').onclick = async e => {
+  const btn = e.target, out = $('#syncOut');
+  btn.disabled = true; btn.textContent = 'กำลังอ่าน…'; out.className = 'sync-out'; out.textContent = '';
+  try{
+    const r = await fetch(`${API}/ingest`,{
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({force:false})
+    });
+    if(!r.ok) throw new Error(`เซิร์ฟเวอร์ตอบ ${r.status}`);
+    const s = await r.json();
+    out.textContent = `ใหม่ ${s.new} · แก้ไข ${s.updated} · ข้าม ${s.skipped} · ลบ ${s.deleted}`;
+    checkHealth();
+  }catch(err){
+    out.className = 'sync-out err';
+    out.textContent = 'ซิงก์ไม่สำเร็จ — ' + err.message;
+  }finally{
+    btn.disabled = false; btn.textContent = 'อ่านโน้ตใหม่';
+  }
+};
+
+$('#resetBtn').onclick = () => { sessionId = crypto.randomUUID(); location.reload(); };
+$('#sendBtn').onclick = send;
+$('#topk').oninput = e => $('#topkVal').textContent = e.target.value;
+
+input.addEventListener('keydown', e=>{
+  if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); send(); }
+});
+input.addEventListener('input', ()=>{
+  input.style.height='auto'; input.style.height=Math.min(input.scrollHeight,180)+'px';
+});
+
+checkHealth();
+</script>
+</body>
+</html>

@@ -1,0 +1,61 @@
+# Obsidian RAG — Infrastructure (development)
+#
+# ไฟล์นี้ยกเฉพาะ database ให้ FastAPI ที่รันบนเครื่องเชื่อมต่อ
+# เหมาะกับตอนพัฒนาเพราะแก้โค้ดแล้วเห็นผลทันทีโดยไม่ต้อง rebuild image
+#
+# ถ้าจะรันทั้งระบบใน container ให้ใช้ docker-compose.prod.yml แทน
+#
+# Usage:
+#   cp .env.example .env     # แล้วแก้ค่าใน .env ก่อนรัน
+#   docker compose up -d
+
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    container_name: obsidian-rag-qdrant
+    restart: unless-stopped
+    ports:
+      - "${QDRANT_HTTP_PORT:-6333}:6333"   # REST API + Web UI (/dashboard)
+      - "${QDRANT_GRPC_PORT:-6334}:6334"   # gRPC (เร็วกว่า ใช้ตอน bulk upsert)
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      QDRANT__LOG_LEVEL: INFO
+      # หมายเหตุ: ไม่ตั้ง QDRANT__SERVICE__API_KEY ตอน dev เพราะแค่ "มีตัวแปรอยู่" (แม้ค่าว่าง)
+      # Qdrant ก็จะบังคับให้ client ต้องส่ง API key มาด้วย ถึงจะเป็นสตริงว่างก็ตาม
+    healthcheck:
+      # Qdrant image ไม่มี curl — ใช้ bash /dev/tcp เช็คว่าพอร์ตเปิดรับจริง
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: obsidian-rag-postgres
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-obsidian_rag}
+      # ทำให้ initdb ใช้ UTF-8 (จำเป็นสำหรับเก็บโน้ตภาษาไทย)
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # สคริปต์ใน initdb.d จะรันครั้งเดียวตอนสร้าง volume ใหม่เท่านั้น
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB:-obsidian_rag}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  qdrant_data:
+    name: obsidian_rag_qdrant_data
+  postgres_data:
+    name: obsidian_rag_postgres_data
