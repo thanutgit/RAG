@@ -5,7 +5,7 @@ A question-answering system over your own documents. Reads Markdown, PDF, Word, 
 
 Ask in natural language. The system decides whether the question calls for semantic search over your notes or an actual calculation over your spreadsheets, and answers from what it finds.
 
-> **Status:** Working end to end — web UI, REST API, CLI, 109 tests, CI, API key auth, and a container build. Not yet behind HTTPS, so it's localhost or SSH-tunnel only for now. See [Known limitations](#known-limitations).
+> **Status:** Working end to end — web UI, REST API, CLI, 113 tests, CI/CD, API key auth, and a container build. Not yet behind HTTPS, so it's localhost or SSH-tunnel only for now. See [Known limitations](#known-limitations).
 
 ---
 
@@ -232,7 +232,7 @@ services/          Core logic, independent of any interface
 app/main.py        FastAPI routes, and serves the frontend
 frontend/index.html Web UI (single file, no build step)
 scripts/           CLI wrappers around the same services
-tests/             109 fast tests, 9 requiring a live model
+tests/             113 fast tests, 9 requiring a live model
 utils/
   chunking.py        Structure-aware splitting
   text_normalize.py  Unicode normalization before embedding
@@ -246,8 +246,14 @@ The CLI and the API call the same service functions, so there is one implementat
 ## Tests
 
 ```bash
-pytest -m "not llm"    # 109 tests, ~2s, no dependencies
+pytest -m "not llm"    # 113 tests, ~2s, no dependencies
 pytest                 # adds 9 end-to-end tests, ~3min, needs Ollama and data
+```
+
+A pre-commit hook runs `ruff` locally so formatting problems surface in a second rather than three minutes into CI:
+
+```bash
+bash scripts/setup_hooks.sh
 ```
 
 Split in two because a suite that takes four minutes stops being run. The fast tier covers what can be checked without a model — SQL validation and repair, file readers, chunking, Unicode normalization, rewrite safety, auth and rate limiting. The slow tier asks real questions with known answers.
