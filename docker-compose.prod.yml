@@ -3,6 +3,9 @@
 # ต่างจาก docker-compose.yml ตรงที่รัน FastAPI ใน container ด้วย
 # และไม่เปิดพอร์ต database ออกสู่ภายนอก
 #
+# ชื่อ container กับ volume มี prefix "prod" แยกจาก dev ทั้งหมด
+# เพื่อให้รันพร้อมกันบนเครื่องเดียวได้ และ prod ไม่ไปเขียนทับข้อมูลที่ใช้พัฒนาอยู่
+#
 # Usage:
 #   docker compose -f docker-compose.prod.yml up -d --build     # build เอง
 #   APP_IMAGE=ghcr.io/user/repo:sha-abc docker compose -f docker-compose.prod.yml up -d --no-build
@@ -15,7 +18,7 @@ services:
     # ถ้าไม่ระบุ APP_IMAGE จะ build จาก Dockerfile ในเครื่อง
     image: ${APP_IMAGE:-obsidian-rag:local}
     build: .
-    container_name: obsidian-rag-api
+    container_name: obsidian-rag-prod-api
     restart: unless-stopped
     ports:
       # ใช้ 8001 เพื่อไม่ชนกับ uvicorn ที่รันตอน dev บนพอร์ต 8000
@@ -61,7 +64,7 @@ services:
 
   qdrant:
     image: qdrant/qdrant:v1.12.4
-    container_name: obsidian-rag-qdrant
+    container_name: obsidian-rag-prod-qdrant
     restart: unless-stopped
     # ไม่เปิดพอร์ตออกภายนอก — เข้าถึงได้เฉพาะจาก container อื่นในเครือข่ายเดียวกัน
     expose:
@@ -80,7 +83,7 @@ services:
 
   postgres:
     image: postgres:16-alpine
-    container_name: obsidian-rag-postgres
+    container_name: obsidian-rag-prod-postgres
     restart: unless-stopped
     expose:
       - "5432"
@@ -99,8 +102,10 @@ services:
       retries: 5
       start_period: 10s
 
+# แยก volume จาก dev เพราะเป็นข้อมูลคนละชุด
+# ถ้าใช้ร่วมกัน prod จะเขียนทับข้อมูลที่ใช้พัฒนาอยู่
 volumes:
   qdrant_data:
-    name: obsidian_rag_qdrant_data
+    name: obsidian_rag_prod_qdrant_data
   postgres_data:
-    name: obsidian_rag_postgres_data
+    name: obsidian_rag_prod_postgres_data

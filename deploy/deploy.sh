@@ -22,6 +22,11 @@ set -Eeuo pipefail      # หยุดทันทีที่มี error, ต�
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE_FILE="$REPO_DIR/docker-compose.prod.yml"
 ENV_FILE="$DEPLOY_DIR/.env"
+
+# ระบุชื่อ project ให้ชัด ไม่งั้น compose เดาจากชื่อโฟลเดอร์
+# ซึ่งเปลี่ยนไปตามที่ runner ทำ checkout ทำให้ compose มองว่าเป็นคนละ project
+# แล้วพยายามสร้าง container ใหม่ทับของเดิม
+COMPOSE_PROJECT="obsidian-rag-prod"
 HEALTH_URL="${HEALTH_URL:-http://localhost:8001/health}"
 HEALTH_RETRIES=24        # 24 ครั้ง x 5 วินาที = รอสูงสุด 2 นาที
 HEALTH_INTERVAL=5
@@ -69,7 +74,8 @@ wait_healthy() {
 start_with() {
     local tag="$1"
     APP_IMAGE="$IMAGE:$tag" \
-        docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --no-build
+        docker compose -p "$COMPOSE_PROJECT" \
+            --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --no-build
 }
 
 log "เปลี่ยนไปใช้ $IMAGE_TAG"
@@ -88,10 +94,11 @@ fi
 
 # ---------------------------------------------------------------- 5. rollback
 log "health check ไม่ผ่าน กำลังย้อนกลับ"
-docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" logs api --tail 40 || true
+docker compose -p "$COMPOSE_PROJECT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+    logs api --tail 40 || true
 
 if [ -z "$PREVIOUS_TAG" ]; then
-    docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" down || true
+    docker compose -p "$COMPOSE_PROJECT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" down || true
     fail "deploy ครั้งแรกล้มเหลว และไม่มี version เดิมให้ย้อนกลับ"
 fi
 

@@ -168,15 +168,26 @@ docker image ls ghcr.io/<user>/<repo>
 
 ---
 
-## ทำไมต้องแยกพอร์ต
+## dev กับ prod แยกกันทุกอย่าง
 
-| | dev | deploy |
+| | dev | prod |
 |:---|:---|:---|
-| พอร์ต | 8000 | 8001 |
+| พอร์ต API | 8000 | 8001 |
+| container | `obsidian-rag-*` | `obsidian-rag-prod-*` |
+| volume | `obsidian_rag_*_data` | `obsidian_rag_prod_*_data` |
+| compose project | `obsidian-rag` | `obsidian-rag-prod` |
 | โค้ด | ไฟล์ที่กำลังแก้ | image จาก commit ที่ push แล้ว |
 | อัปเดตเมื่อ | เซฟไฟล์ | push ขึ้น main |
 
-แยกกันทำให้ทดสอบเทียบได้ว่าโค้ดที่แก้อยู่กับที่ deploy แล้วต่างกันตรงไหน
+**ต้องแยกทั้งหมด** ไม่ใช่แค่พอร์ต เพราะ:
+- ชื่อ container ซ้ำ → Docker ปฏิเสธสร้างตัวใหม่
+- volume ซ้ำ → prod เขียนทับข้อมูลที่ใช้พัฒนาอยู่
+
+ระบุ project name ด้วย `-p` เสมอ ไม่งั้น compose เดาจากชื่อโฟลเดอร์
+ซึ่ง runner ทำ checkout ไว้คนละที่กับที่คุณพัฒนา — compose จะมองเป็นคนละ project
+แล้วพยายามสร้างของใหม่ทับ
+
+รันพร้อมกันได้ ทดสอบเทียบได้ว่าโค้ดที่แก้อยู่กับที่ deploy แล้วต่างกันตรงไหน
 
 ---
 
