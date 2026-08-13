@@ -114,7 +114,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -uo pipefail
+          # -e หยุดทันทีที่คำสั่งไหนล้มเหลว, -u ห้ามใช้ตัวแปรที่ไม่ได้ตั้ง
+          # pipefail ทำให้ pipe ล้มเหลวถ้าคำสั่งใดในนั้นล้มเหลว
+          set -euo pipefail
           DATE=$(date -u +'%Y.%m.%d')
 
           fail() { echo "::error::$*"; exit 1; }
@@ -170,11 +172,18 @@ jobs:
           esac
 
           # ---------- 3. หาเลขลำดับถัดไป ----------
+          # grep ที่หาไม่เจอคืน exit 1 ซึ่ง shell ถือว่าล้มเหลว
+          # แต่ในที่นี้ "ไม่เจอ" เป็นผลลัพธ์ปกติ (วันนี้ยังไม่เคย build)
+          # จึงต้องปิดการหยุดชั่วคราว ไม่งั้น step จะพังตอน push ครั้งแรก
+          set +e
           LAST=$(echo "$EXISTING" | grep -E "^v${DATE}-[0-9]+$" | sed "s/^v${DATE}-//" | sort -n | tail -1)
+          set -e
+
           SEQ=$(( ${LAST:-0} + 1 ))
           VERSION="v${DATE}-${SEQ}"
 
           # กันซ้ำอีกชั้น เผื่อ registry ตอบข้อมูลไม่ครบ
+          # ใส่ใน if จึงไม่ต้อง set +e — shell ไม่หยุดเมื่อเงื่อนไขใน if เป็นเท็จ
           if echo "$EXISTING" | grep -qx "$VERSION"; then
             fail "tag ${VERSION} มีอยู่แล้วใน registry — การคำนวณลำดับผิดพลาด"
           fi
