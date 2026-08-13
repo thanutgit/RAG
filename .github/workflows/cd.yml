@@ -74,6 +74,11 @@ jobs:
       - name: เลือก tag ที่จะ deploy
         id: tag
         run: |
+          # Docker registry บังคับให้ชื่อ image เป็นตัวเล็กทั้งหมด
+          # แต่ github.repository คืนชื่อตามที่ตั้งจริง เช่น thanutgit/RAG
+          # CI ไม่เจอปัญหานี้เพราะ metadata-action แปลงให้เอง
+          echo "image=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
           # ลำดับความสำคัญ: สั่งเองด้วยมือ > version จาก CI > sha ของ commit
           if [ -n "${{ inputs.image_tag }}" ]; then
             TAG="${{ inputs.image_tag }}"
@@ -99,7 +104,7 @@ jobs:
           bash deploy/deploy.sh
         env:
           DEPLOY_DIR: ${{ secrets.DEPLOY_DIR }}
-          IMAGE: ghcr.io/${{ github.repository }}
+          IMAGE: ghcr.io/${{ steps.tag.outputs.image }}
           IMAGE_TAG: ${{ steps.tag.outputs.tag }}
 
       - name: สรุปผล

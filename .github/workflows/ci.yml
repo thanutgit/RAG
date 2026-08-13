@@ -119,6 +119,9 @@ jobs:
           set -euo pipefail
           DATE=$(date -u +'%Y.%m.%d')
 
+          # registry บังคับชื่อ image ตัวเล็ก แต่ชื่อ repo อาจมีตัวใหญ่ (เช่น thanutgit/RAG)
+          IMAGE_NAME=$(echo "$IMAGE_NAME" | tr '[:upper:]' '[:lower:]')
+
           fail() { echo "::error::$*"; exit 1; }
 
           # ---------- 1. ขอ token สำหรับอ่าน registry ----------
