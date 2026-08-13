@@ -112,7 +112,11 @@ def load_table(conn, source_file: str, table_spec: dict) -> str | None:
         return None
 
     # ชื่อตาราง: ผสมชื่อไฟล์กับชื่อชีท เพื่อไม่ให้ชนกันข้ามไฟล์
-    base = f"{Path(source_file).stem}_{table_spec['name']}"
+    # CSV ใช้ชื่อไฟล์เป็นชื่อ sheet ด้วย จึงต้องกันไม่ให้ได้ชื่อซ้ำคำ
+    # อย่าง "data_tiny_tiny" ซึ่งทำให้ LLM เขียน SQL ผิดบ่อย (มันเดาว่า "data_tiny")
+    stem = Path(source_file).stem
+    sheet = table_spec["name"]
+    base = stem if _sanitize_ident(sheet) == _sanitize_ident(stem) else f"{stem}_{sheet}"
     table_name = TABLE_PREFIX + _sanitize_ident(base)
 
     # ชื่อคอลัมน์ต้องไม่ซ้ำกันในตารางเดียว

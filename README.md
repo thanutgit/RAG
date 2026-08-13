@@ -5,7 +5,7 @@ A question-answering system over your own documents. Reads Markdown, PDF, Word, 
 
 Ask in natural language. The system decides whether the question calls for semantic search over your notes or an actual calculation over your spreadsheets, and answers from what it finds.
 
-> **Status:** Working end to end — web UI, REST API, CLI, 91 tests, CI, and a container build. Not deployed and has no authentication yet, so it's localhost-only for now. See [Known limitations](#known-limitations).
+> **Status:** Working end to end — web UI, REST API, CLI, 109 tests, CI, API key auth, and a container build. Not yet behind HTTPS, so it's localhost or SSH-tunnel only for now. See [Known limitations](#known-limitations).
 
 ---
 
@@ -120,6 +120,10 @@ To run everything in containers instead, see [DEPLOYMENT.md](DEPLOYMENT.md).
 | `/tables` | GET | Tables loaded for SQL querying |
 | `/export/xlsx` | POST | Download a result table as Excel |
 
+Everything except `/health` and the UI requires an `X-API-Key` header. Health stays open so monitoring can reach it, and the UI has to load before a key can be entered. Keys are compared with `hmac.compare_digest` rather than `==`, since a plain string comparison exits at the first differing character and leaks how much of a guess was right. `/query` allows 30 requests a minute and `/ingest` three per five minutes, counted per key.
+
+Auth is off when `API_KEYS` is unset, which keeps local development frictionless — the production compose file refuses to start without it.
+
 **Example**
 
 ```bash
@@ -216,6 +220,8 @@ readers/           One module per file format, each returning Markdown
   base.py            Shared Document type and helpers
 services/          Core logic, independent of any interface
   config.py          Environment configuration, loaded once
+  auth.py            API key verification
+  rate_limit.py      Sliding-window request limiting
   ollama_service.py  Embedding and chat completion
   qdrant_service.py  Vector store operations
   postgres_service.py Sync state and chat history
@@ -226,7 +232,7 @@ services/          Core logic, independent of any interface
 app/main.py        FastAPI routes, and serves the frontend
 frontend/index.html Web UI (single file, no build step)
 scripts/           CLI wrappers around the same services
-tests/             91 fast tests, 9 requiring a live model
+tests/             109 fast tests, 9 requiring a live model
 utils/
   chunking.py        Structure-aware splitting
   text_normalize.py  Unicode normalization before embedding
@@ -240,11 +246,11 @@ The CLI and the API call the same service functions, so there is one implementat
 ## Tests
 
 ```bash
-pytest -m "not llm"    # 91 tests, ~2s, no dependencies
+pytest -m "not llm"    # 109 tests, ~2s, no dependencies
 pytest                 # adds 9 end-to-end tests, ~3min, needs Ollama and data
 ```
 
-Split in two because a suite that takes four minutes stops being run. The fast tier covers what can be checked without a model — SQL validation and repair, file readers, chunking, Unicode normalization, rewrite safety. The slow tier asks real questions with known answers.
+Split in two because a suite that takes four minutes stops being run. The fast tier covers what can be checked without a model — SQL validation and repair, file readers, chunking, Unicode normalization, rewrite safety, auth and rate limiting. The slow tier asks real questions with known answers.
 
 Nearly every test corresponds to a bug that actually happened. LLM output isn't deterministic and prompt changes have non-local effects: a rule added to fix one case taught the model to apply it where it didn't belong, and the resulting wrong number looked entirely plausible. `tests/HOWTO_ADD_TEST.md` documents the workflow.
 
@@ -268,7 +274,7 @@ Nearly every test corresponds to a bug that actually happened. LLM output isn't 
 
 ## Known limitations
 
-- **No authentication.** The API is unprotected and intended for localhost use only. See [DEPLOYMENT.md](DEPLOYMENT.md) for what would need to exist before exposing it.
+- **No HTTPS yet.** API keys travel in plaintext, so this belongs behind a reverse proxy or an SSH tunnel rather than on the open internet. See [DEPLOYMENT.md](DEPLOYMENT.md).
 - **Sensitive to spelling, unevenly.** Semantic search matches meaning, so a typo landing near the intended word still works while one landing near a different word doesn't: `buget tacker` finds the budget spreadsheet, `bugget tacker` returns nothing. Unicode normalization handles one common Thai case, but genuine misspellings still miss. Hybrid search combining BM25 with vector search is the intended fix.
 - **The relevance threshold is a guess.** The current fixed cutoff came from eyeballing the score gap on a handful of queries. A threshold relative to the top score would generalize better, but tuning either properly needs a larger evaluation set.
 - **Aggregation only works over tabular files.** SQL handles spreadsheets. Questions needing every chunk of a Markdown file — *"summarize everything I wrote about Docker"* — still see only what retrieval returned.
@@ -282,7 +288,7 @@ Nearly every test corresponds to a bug that actually happened. LLM output isn't 
 
 ## Roadmap
 
-- API key authentication and rate limiting
+- Reverse proxy with HTTPS, and a deployment pipeline
 - Hybrid search (BM25 alongside vector search) for typos and exact identifiers
 - A larger evaluation set, used to tune the relevance threshold
 - Whole-document retrieval when a question is about one specific file

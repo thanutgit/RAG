@@ -174,3 +174,20 @@ def test_rejects_unknown_table():
 
     with pytest.raises(SQLError, match="ไม่มีอยู่"):
         validate_tables_exist('SELECT * FROM "data_a"', known)
+
+
+def test_table_name_does_not_repeat_stem():
+    """
+    บั๊กจริง: CSV ใช้ชื่อไฟล์เป็นชื่อ sheet ด้วย ทำให้ได้ชื่อตาราง "data_tiny_tiny"
+    LLM เห็นแล้วเดาว่าน่าจะเป็น "data_tiny" -> เขียน SQL ผิดทุกครั้ง
+    """
+    from services.tabular_service import TABLE_PREFIX, _sanitize_ident
+
+    stem = sheet = "tiny"
+    base = stem if _sanitize_ident(sheet) == _sanitize_ident(stem) else f"{stem}_{sheet}"
+    assert TABLE_PREFIX + _sanitize_ident(base) == "data_tiny"
+
+    # ชื่อ sheet ต่างจากชื่อไฟล์ (เช่น Excel) ต้องยังต่อกันเหมือนเดิม
+    stem, sheet = "budget_tracker", "Dashboard"
+    base = stem if _sanitize_ident(sheet) == _sanitize_ident(stem) else f"{stem}_{sheet}"
+    assert TABLE_PREFIX + _sanitize_ident(base) == "data_budget_tracker_dashboard"

@@ -79,6 +79,16 @@
   button.quiet:hover{background:transparent; color:var(--stamp)}
 
   .sync-out{font-size:.78rem; color:var(--ink-soft); margin-top:9px; line-height:1.6}
+
+  .keybox input{
+    width:100%; font:inherit; font-size:.82rem; padding:7px 10px;
+    border:1px solid var(--rule); border-radius:3px; background:var(--card); color:var(--ink);
+    font-family:ui-monospace,monospace;
+  }
+  .keybox input:focus-visible{outline:2px solid var(--thread); outline-offset:1px}
+  .key-state{font-size:.76rem; margin-top:7px; display:flex; align-items:center; gap:6px}
+  .key-state.ok{color:var(--thread)}
+  .key-state.bad{color:var(--stamp)}
   .sync-out.err{color:var(--stamp)}
 
   /* ---------------- main ---------------- */
@@ -120,6 +130,14 @@
   .answer li{margin-bottom:.4em}
   .answer li::marker{color:var(--stamp); font-variant-numeric:tabular-nums}
   .answer strong{font-weight:600}
+  .answer table{border-collapse:collapse; margin:0 0 1em; font-size:.92em; width:100%}
+  .answer th{
+    text-align:left; font-weight:600; padding:6px 10px;
+    border-bottom:1px solid var(--rule); white-space:nowrap;
+  }
+  .answer td{padding:5px 10px; border-bottom:1px solid rgba(198,202,190,.5)}
+  .answer tr:last-child td{border-bottom:0}
+  .answer td.num{text-align:right; font-variant-numeric:tabular-nums}
   .answer code{
     font-family:ui-monospace,monospace; font-size:.9em;
     background:rgba(26,30,34,.06); padding:.12em .38em; border-radius:2px;
@@ -248,6 +266,12 @@
     <div class="status" id="status"><span class="dot" ></span>กำลังตรวจสอบ</div>
   </section>
 
+  <section class="keybox" id="keySection" hidden>
+    <h2>API key</h2>
+    <input type="password" id="apiKey" placeholder="วาง API key ที่นี่" autocomplete="off">
+    <div class="key-state" id="keyState"></div>
+  </section>
+
   <section>
     <h2>การค้นหา</h2>
     <label class="field" for="topk">ดึงมาอ้างอิง <b id="topkVal">5</b> ส่วน</label>
@@ -289,6 +313,15 @@
 
 <script>
 const API = location.origin;
+
+/* ---------- API key ----------
+   เก็บใน sessionStorage ไม่ใช่ localStorage เพราะหายเมื่อปิดแท็บ
+   ลดความเสี่ยงถ้าใช้เครื่องร่วมกับคนอื่น */
+let apiKey = sessionStorage.getItem('apiKey') || '';
+
+function authHeaders(extra = {}){
+  return apiKey ? {...extra, 'X-API-Key': apiKey} : extra;
+}
 let sessionId = crypto.randomUUID();
 let busy = false;
 
@@ -321,10 +354,42 @@ function markdown(src){
   };
   const closeList = () => { if(list){ out.push(`</${list}>`); list = null; } };
 
-  for(const raw of src.split('\n')){
-    const line = raw.trim();
+  const lines = src.split('\n');
+
+  for(let li = 0; li < lines.length; li++){
+    const line = lines[li].trim();
 
     if(!line){ flushPara(); closeList(); continue; }
+
+    /* ตาราง: แถวที่ขึ้นต้นและลงท้ายด้วย | และแถวถัดไปเป็นเส้นคั่น |---|---| */
+    if(line.startsWith('|') && line.endsWith('|')){
+      const sep = (lines[li + 1] || '').trim();
+      if(/^\|[\s:|-]+\|$/.test(sep)){
+        flushPara(); closeList();
+        const cells = r => r.slice(1, -1).split('|').map(c => c.trim());
+        const header = cells(line);
+
+        out.push('<table><thead><tr>');
+        header.forEach(h => out.push(`<th>${inline(h)}</th>`));
+        out.push('</tr></thead><tbody>');
+
+        li += 2;   /* ข้ามแถว header กับเส้นคั่น */
+        while(li < lines.length){
+          const row = lines[li].trim();
+          if(!row.startsWith('|') || !row.endsWith('|')) break;
+          out.push('<tr>');
+          cells(row).forEach(c => {
+            const isNum = c !== '' && !isNaN(c.replace(/,/g, ''));
+            out.push(`<td class="${isNum ? 'num' : ''}">${inline(c)}</td>`);
+          });
+          out.push('</tr>');
+          li++;
+        }
+        li--;      /* ชดเชย li++ ของ for loop */
+        out.push('</tbody></table>');
+        continue;
+      }
+    }
 
     const heading = line.match(/^(#{1,6})\s+(.*)$/);
     if(heading){
@@ -360,10 +425,24 @@ async function checkHealth(){
     const d = await r.json();
     $('#count').textContent = d.chunks_in_db.toLocaleString('th-TH');
     status.innerHTML = '<span class="dot ok"></span>เชื่อมต่อแล้ว';
+
+    if(d.auth_required){
+      $('#keySection').hidden = false;
+      $('#apiKey').value = apiKey;
+      showKeyState();
+    }
   }catch{
     $('#count').textContent = '—';
     status.innerHTML = '<span class="dot down"></span>ต่อ backend ไม่ได้';
   }
+}
+
+function showKeyState(msg, cls){
+  const el = $('#keyState');
+  if(!el) return;
+  if(msg){ el.textContent = msg; el.className = 'key-state ' + (cls || ''); return; }
+  el.textContent = apiKey ? 'บันทึกไว้แล้ว (หายเมื่อปิดแท็บ)' : 'ยังไม่ได้ใส่ key';
+  el.className = 'key-state';
 }
 
 /* ---------- คำถามตัวอย่าง ---------- */
@@ -391,11 +470,17 @@ async function send(){
 
   try{
     const r = await fetch(`${API}/query`,{
-      method:'POST', headers:{'Content-Type':'application/json'},
+      method:'POST', headers:authHeaders({'Content-Type':'application/json'}),
       body: JSON.stringify({question:q, top_k:+$('#topk').value, session_id:sessionId})
     });
     if(!r.ok){
       const e = await r.json().catch(()=>({}));
+      if(r.status === 401){
+        $('#keySection').hidden = false;
+        showKeyState('key ไม่ถูกต้องหรือยังไม่ได้ใส่', 'bad');
+        throw new Error(e.detail || 'ต้องใส่ API key ก่อนถึงจะถามได้');
+      }
+      if(r.status === 429) throw new Error(e.detail || 'เรียกถี่เกินไป รอสักครู่แล้วลองใหม่');
       throw new Error(e.detail || `เซิร์ฟเวอร์ตอบ ${r.status}`);
     }
     render(turn, await r.json());
@@ -466,7 +551,7 @@ function renderTable(t){
     btn.disabled = true; btn.textContent = 'กำลังสร้าง…';
     try{
       const r = await fetch(`${API}/export/xlsx`, {
-        method:'POST', headers:{'Content-Type':'application/json'},
+        method:'POST', headers:authHeaders({'Content-Type':'application/json'}),
         body: JSON.stringify({columns:t.columns, rows:t.rows, filename:'query_result'})
       });
       if(!r.ok) throw new Error('สร้างไฟล์ไม่สำเร็จ');
@@ -556,7 +641,7 @@ $('#syncBtn').onclick = async e => {
   btn.disabled = true; btn.textContent = 'กำลังอ่าน…'; out.className = 'sync-out'; out.textContent = '';
   try{
     const r = await fetch(`${API}/ingest`,{
-      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({force:false})
+      method:'POST', headers:authHeaders({'Content-Type':'application/json'}), body: JSON.stringify({force:false})
     });
     if(!r.ok) throw new Error(`เซิร์ฟเวอร์ตอบ ${r.status}`);
     const s = await r.json();
@@ -568,6 +653,13 @@ $('#syncBtn').onclick = async e => {
   }finally{
     btn.disabled = false; btn.textContent = 'อ่านโน้ตใหม่';
   }
+};
+
+$('#apiKey').oninput = e => {
+  apiKey = e.target.value.trim();
+  if(apiKey) sessionStorage.setItem('apiKey', apiKey);
+  else sessionStorage.removeItem('apiKey');
+  showKeyState();
 };
 
 $('#resetBtn').onclick = () => { sessionId = crypto.randomUUID(); location.reload(); };

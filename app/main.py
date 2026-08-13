@@ -10,12 +10,12 @@ import io
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from services import config, postgres_service, qdrant_service
+from services import auth, config, postgres_service, qdrant_service, rate_limit
 from services.ingest_service import run_ingest
 from services.query_service import run_query
 
@@ -91,15 +91,26 @@ def health_check():
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"เชื่อมต่อ Qdrant ไม่ได้: {e}") from e
 
-    return {"status": "ok", "chunks_in_db": chunk_count}
+    return {
+        "status": "ok",
+        "chunks_in_db": chunk_count,
+        # frontend ใช้ค่านี้ตัดสินใจว่าต้องแสดงช่องกรอก API key หรือไม่
+        "auth_required": auth.is_auth_enabled(),
+    }
 
 
 @app.post("/ingest")
-def ingest_endpoint(req: IngestRequest):
+def ingest_endpoint(
+    req: IngestRequest,
+    request: Request,
+    api_key: str = Depends(auth.verify_api_key),
+):
     """
     สั่งให้ระบบอ่าน vault ใหม่ทั้งหมด แล้ว sync เข้า Qdrant
     (ไฟล์ที่ไม่เปลี่ยนแปลงจะถูกข้าม ยกเว้นตั้ง force=true)
     """
+    rate_limit.ingest_limiter.check(rate_limit.client_id(request, api_key))
+
     try:
         stats = run_ingest(force=req.force)
     except FileNotFoundError as e:
@@ -111,7 +122,7 @@ def ingest_endpoint(req: IngestRequest):
 
 
 @app.get("/tables")
-def list_tables_endpoint():
+def list_tables_endpoint(api_key: str = Depends(auth.verify_api_key)):
     """รายชื่อตารางที่โหลดเข้า SQL แล้ว ใช้ตรวจว่าไฟล์ตารางถูกโหลดครบไหม"""
     from services import tabular_service
 
@@ -126,8 +137,14 @@ def list_tables_endpoint():
 
 
 @app.post("/query", response_model=QueryResponse)
-def query_endpoint(req: QueryRequest):
+def query_endpoint(
+    req: QueryRequest,
+    request: Request,
+    api_key: str = Depends(auth.verify_api_key),
+):
     """รับคำถาม -> ค้นหาจาก Qdrant -> ให้ LLM ตอบ พร้อม log ประวัติลง PostgreSQL"""
+    rate_limit.query_limiter.check(rate_limit.client_id(request, api_key))
+
     session_id = req.session_id or str(uuid.uuid4())
 
     try:
@@ -168,7 +185,7 @@ class ExportRequest(BaseModel):
 
 
 @app.post("/export/xlsx")
-def export_xlsx(req: ExportRequest):
+def export_xlsx(req: ExportRequest, api_key: str = Depends(auth.verify_api_key)):
     """
     แปลงผลลัพธ์เป็นไฟล์ Excel ให้ดาวน์โหลด
 

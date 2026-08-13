@@ -6,10 +6,13 @@ on:
   pull_request:
     branches: [main]
 
-# ยกเลิก run เก่าถ้า push ใหม่เข้ามาบน branch เดียวกัน — ประหยัดเวลา runner
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   test:
@@ -77,30 +80,152 @@ jobs:
           fi
           echo "ไม่พบไฟล์ความลับ"
 
-  docker:
-    name: Docker build
+  build:
+    name: Build image
     runs-on: ubuntu-latest
-    # build เฉพาะเมื่อ test กับ lint ผ่านแล้ว ไม่ต้องเสียเวลา build ของที่พัง
     needs: [test, lint]
+    permissions:
+      contents: read
+      packages: write      # write ครอบคลุม read ด้วย — ใช้ทั้งอ่าน tag เดิมและ push ตัวใหม่
     steps:
       - uses: actions/checkout@v4
 
       - uses: docker/setup-buildx-action@v3
 
-      - name: Build image
+      # login เฉพาะตอน push บน repo ต้นทาง — PR จาก fork ไม่มีสิทธิ์เขียน registry
+      - name: Login to registry
+        if: github.event_name == 'push' && github.repository == github.event.repository.full_name
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # สร้างเลข version แบบ v2026.08.13-1 โดยนับรอบที่ deploy ในวันนั้น
+      # ต้องถาม registry ว่าวันนี้มี tag อะไรไปแล้วบ้าง เพราะ workflow แต่ละครั้ง
+      # เป็นคนละ process กัน จำ counter ข้ามรอบไม่ได้
+      #
+      # ถ้าถามไม่สำเร็จจะหยุดทันที ไม่เดาว่าเริ่มที่ 1
+      # เพราะการเดาทำให้ tag ซ้ำแล้วชี้ทับ image เก่า ซึ่ง rollback ด้วย version
+      # จะได้ของผิดตัวโดยไม่มีใครรู้
+      - name: คำนวณเลข version
+        id: version
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          DATE=$(date -u +'%Y.%m.%d')
+
+          fail() { echo "::error::$*"; exit 1; }
+
+          # ---------- 1. ขอ token สำหรับอ่าน registry ----------
+          # แยก http code ออกจาก body เพื่อบอกได้ว่าล้มเหลวเพราะอะไร
+          TOKEN_RESP=$(curl -sS --max-time 20 -w '\n%{http_code}' \
+            -u "${{ github.actor }}:${GH_TOKEN}" \
+            "https://ghcr.io/token?scope=repository:${IMAGE_NAME}:pull" 2>&1) || CURL_RC=$?
+
+          if [ "${CURL_RC:-0}" -ne 0 ]; then
+            case "${CURL_RC}" in
+              6|7)  fail "ต่อ ghcr.io ไม่ได้ (เน็ตมีปัญหาหรือ DNS ล้มเหลว) — curl exit ${CURL_RC}" ;;
+              28)   fail "ขอ token จาก ghcr.io ไม่ตอบภายใน 20 วินาที (registry ช้าหรือล่ม)" ;;
+              *)    fail "เรียก ghcr.io ล้มเหลว — curl exit ${CURL_RC}: ${TOKEN_RESP}" ;;
+            esac
+          fi
+
+          HTTP_CODE=$(echo "$TOKEN_RESP" | tail -n1)
+          BODY=$(echo "$TOKEN_RESP" | sed '$d')
+
+          case "$HTTP_CODE" in
+            200) : ;;
+            401) fail "ghcr.io ปฏิเสธการยืนยันตัวตน (401) — GITHUB_TOKEN หมดอายุหรือไม่มีสิทธิ์ packages:read" ;;
+            403) fail "ghcr.io ไม่อนุญาต (403) — workflow ขาด permission 'packages: write'" ;;
+            5*)  fail "ghcr.io มีปัญหาฝั่ง server (HTTP ${HTTP_CODE}) ลองใหม่อีกครั้งภายหลัง" ;;
+            *)   fail "ขอ token ไม่สำเร็จ (HTTP ${HTTP_CODE}): ${BODY}" ;;
+          esac
+
+          TOKEN=$(echo "$BODY" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("token",""))' 2>/dev/null)
+          [ -n "$TOKEN" ] || fail "ghcr.io ตอบ 200 แต่ไม่มี token ในผลลัพธ์ — รูปแบบ response เปลี่ยนไป"
+
+          # ---------- 2. ดึงรายชื่อ tag ----------
+          TAGS_RESP=$(curl -sS --max-time 20 -w '\n%{http_code}' \
+            -H "Authorization: Bearer $TOKEN" \
+            "https://ghcr.io/v2/${IMAGE_NAME}/tags/list" 2>&1) || TAGS_RC=$?
+
+          if [ "${TAGS_RC:-0}" -ne 0 ]; then
+            fail "ดึงรายชื่อ tag ไม่สำเร็จ — curl exit ${TAGS_RC}: ${TAGS_RESP}"
+          fi
+
+          TAGS_CODE=$(echo "$TAGS_RESP" | tail -n1)
+          TAGS_BODY=$(echo "$TAGS_RESP" | sed '$d')
+
+          case "$TAGS_CODE" in
+            200) EXISTING=$(echo "$TAGS_BODY" \
+                   | python3 -c 'import sys,json; print("\n".join(json.load(sys.stdin).get("tags") or []))' 2>/dev/null) ;;
+            # 404 = ยังไม่เคย push image นี้เลย ถือว่าปกติสำหรับครั้งแรก
+            404) EXISTING=""; echo "ยังไม่มี image ใน registry — เริ่มนับที่ 1" ;;
+            401|403) fail "ไม่มีสิทธิ์อ่าน tag (HTTP ${TAGS_CODE}) — token ใช้ไม่ได้กับ repository นี้" ;;
+            5*)  fail "ghcr.io มีปัญหาฝั่ง server ตอนดึง tag (HTTP ${TAGS_CODE})" ;;
+            *)   fail "ดึงรายชื่อ tag ไม่สำเร็จ (HTTP ${TAGS_CODE}): ${TAGS_BODY}" ;;
+          esac
+
+          # ---------- 3. หาเลขลำดับถัดไป ----------
+          LAST=$(echo "$EXISTING" | grep -E "^v${DATE}-[0-9]+$" | sed "s/^v${DATE}-//" | sort -n | tail -1)
+          SEQ=$(( ${LAST:-0} + 1 ))
+          VERSION="v${DATE}-${SEQ}"
+
+          # กันซ้ำอีกชั้น เผื่อ registry ตอบข้อมูลไม่ครบ
+          if echo "$EXISTING" | grep -qx "$VERSION"; then
+            fail "tag ${VERSION} มีอยู่แล้วใน registry — การคำนวณลำดับผิดพลาด"
+          fi
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "version ของ build นี้: ${VERSION}"
+
+      - name: กำหนด tag ของ image
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # ติดหลาย tag ให้ image เดียวกัน แต่ละอันมีหน้าที่ต่างกัน:
+          #   v2026.08.13-1  อ่านรู้เรื่องว่า deploy เมื่อไหร่ รอบที่เท่าไร
+          #   sha-a1b2c3...  ระบุ commit ได้แน่นอน ใช้ตรวจว่ารันโค้ดตัวไหนอยู่
+          #   latest         ชี้ตัวล่าสุดเสมอ
+          tags: |
+            type=raw,value=${{ steps.version.outputs.version }},enable=${{ github.event_name == 'push' }}
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=long
+
+      - name: Build และ push
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: false
-          load: true
-          tags: obsidian-rag:ci
+          # PR จาก fork ให้ build อย่างเดียว ไม่ push (ไม่มีสิทธิ์และไม่ควรมี)
+          push: ${{ github.event_name == 'push' }}
+          load: ${{ github.event_name != 'push' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # ตรวจว่า image ที่ build มารันได้จริง ไม่ใช่แค่ build ผ่าน
       - name: ตรวจว่า image รันได้
+        if: github.event_name != 'push'
         run: |
-          docker run --rm obsidian-rag:ci python -c "
+          TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
+          docker run --rm "$TAG" python -c "
           import app.main, services.config, readers, utils.chunking
           print('import ครบทุก module')
           "
+
+      # CD อ่าน version จากไฟล์นี้ เพราะ workflow_run ส่งค่าข้าม workflow ตรง ๆ ไม่ได้
+      - name: บันทึก version ไว้ให้ CD
+        if: github.event_name == 'push'
+        run: echo "${{ steps.version.outputs.version }}" > version.txt
+
+      - name: อัปโหลด version
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: version
+          path: version.txt
+          retention-days: 7

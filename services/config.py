@@ -35,6 +35,13 @@ PG_CONFIG = {
     "dbname": os.getenv("POSTGRES_DB", "obsidian_rag"),
 }
 
+# ---------- Authentication ----------
+# รับหลาย key คั่นด้วย comma เพื่อให้หมุนเวียนเปลี่ยน key ได้โดยไม่ต้องหยุดระบบ
+# (ใส่ key ใหม่เพิ่ม -> เปลี่ยน client ทีละตัว -> ค่อยลบ key เก่า)
+# ถ้าเว้นว่างไว้ ระบบจะไม่ตรวจสิทธิ์เลย เหมาะกับตอนพัฒนาบนเครื่องตัวเอง
+API_KEYS = [k.strip() for k in os.getenv("API_KEYS", "").split(",") if k.strip()]
+
+
 # ---------- RAG Parameters ----------
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "800"))
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "100"))

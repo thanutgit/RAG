@@ -1,0 +1,114 @@
+name: CD
+
+# ทำงานหลัง CI ผ่านทั้งหมดเท่านั้น ไม่ trigger จาก push โดยตรง
+# เพื่อไม่ให้ deploy โค้ดที่ test ยังไม่ผ่าน
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+  # เผื่อกรณีต้อง deploy หรือ rollback ด้วยมือ
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "tag ที่จะ deploy เช่น v2026.08.13-1 หรือ sha-abc... (เว้นว่าง = ตัวล่าสุด)"
+        required: false
+        default: ""
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false      # deploy ต้องทำให้จบ ห้ามยกเลิกกลางคัน
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: self-hosted
+
+    # ---------------------------------------------------------------
+    # ความปลอดภัย: repo นี้เป็น public และ runner รันบนเครื่องส่วนตัว
+    # ใครก็ fork แล้วส่ง PR ที่มีโค้ดอะไรก็ได้ ถ้าปล่อยให้รันบน runner
+    # โค้ดของคนแปลกหน้าจะเข้าถึงไฟล์ทุกอย่างบนเครื่อง รวมถึง .env และ SSH key
+    #
+    # จึงกันไว้ 3 ชั้น:
+    #   1. รันเฉพาะเมื่อ CI สำเร็จ (หรือสั่งด้วยมือ)
+    #   2. เฉพาะ repo ต้นทาง ไม่ใช่ fork
+    #   3. เฉพาะเจ้าของ repo เป็นคนสั่ง
+    # ---------------------------------------------------------------
+    if: >
+      github.repository_owner == github.actor &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.workflow_run.conclusion == 'success')
+
+    environment: production        # ตั้ง required reviewer ได้ใน GitHub Settings
+
+    steps:
+      - name: ตรวจสภาพแวดล้อมก่อนเริ่ม
+        run: |
+          echo "runner: $(hostname)"
+          docker --version
+          docker compose version
+          # .env เก็บนอก git และนอกโฟลเดอร์งาน เพราะ checkout จะทับทุกครั้ง
+          test -f "$DEPLOY_DIR/.env" \
+            || { echo "::error::ไม่พบ .env ที่ $DEPLOY_DIR — ดู deploy/README.md"; exit 1; }
+        env:
+          DEPLOY_DIR: ${{ secrets.DEPLOY_DIR }}
+
+      - uses: actions/checkout@v4
+        with:
+          # ถ้ามาจาก workflow_run ต้องระบุ sha ให้ตรงกับ commit ที่ CI ทดสอบผ่าน
+          # ไม่งั้นอาจ deploy โค้ดคนละตัวกับที่ทดสอบ
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      # CI บันทึก version ไว้เป็น artifact เพราะส่งค่าข้าม workflow ตรง ๆ ไม่ได้
+      - name: ดึง version จาก CI
+        id: ver
+        if: github.event_name == 'workflow_run'
+        uses: actions/download-artifact@v4
+        continue-on-error: true      # ถ้าไม่มีให้ถอยไปใช้ sha แทน
+        with:
+          name: version
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: เลือก tag ที่จะ deploy
+        id: tag
+        run: |
+          # ลำดับความสำคัญ: สั่งเองด้วยมือ > version จาก CI > sha ของ commit
+          if [ -n "${{ inputs.image_tag }}" ]; then
+            TAG="${{ inputs.image_tag }}"
+            echo "ใช้ tag ที่ระบุมา: $TAG"
+          elif [ -f version.txt ]; then
+            TAG=$(cat version.txt)
+            echo "ใช้ version จาก CI: $TAG"
+          else
+            TAG="sha-${{ github.event.workflow_run.head_sha || github.sha }}"
+            echo "ไม่พบ version จาก CI ถอยไปใช้ sha: $TAG"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Login to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Deploy
+        run: |
+          bash deploy/deploy.sh
+        env:
+          DEPLOY_DIR: ${{ secrets.DEPLOY_DIR }}
+          IMAGE: ghcr.io/${{ github.repository }}
+          IMAGE_TAG: ${{ steps.tag.outputs.tag }}
+
+      - name: สรุปผล
+        if: always()
+        run: |
+          {
+            echo "### Deploy $( [ ${{ job.status }} = success ] && echo 'สำเร็จ' || echo 'ล้มเหลว' )"
+            echo ""
+            echo "- version: \`${{ steps.tag.outputs.tag }}\`"
+            echo "- commit: \`${{ github.event.workflow_run.head_sha || github.sha }}\`"
+            echo "- เวลา: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+          } >> $GITHUB_STEP_SUMMARY
