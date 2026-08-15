@@ -135,3 +135,23 @@ class TestClientId:
     def test_ใช้_ip_เมื่อไม่มี_key(self):
         assert client_id(self._Req("1.2.3.4"), None) == "ip:1.2.3.4"
         assert client_id(self._Req("1.2.3.4"), "anonymous") == "ip:1.2.3.4"
+
+
+class TestQdrantConnection:
+    def test_https_ปิดโดยค่าเริ่มต้น(self):
+        """
+        บั๊กจริง: qdrant-client เปิด HTTPS อัตโนมัติเมื่อมี api_key
+        แต่ Qdrant ใน Docker ไม่ได้ตั้ง TLS -> SSL: WRONG_VERSION_NUMBER
+        เจอเฉพาะตอน deploy เพราะ dev ไม่ได้ตั้ง API key
+        """
+        from services import config
+
+        assert config.QDRANT_USE_HTTPS is False
+
+    @pytest.mark.parametrize(
+        "value,expected",
+        [("true", True), ("1", True), ("yes", True), ("false", False), ("", False)],
+    )
+    def test_เปิด_https_ได้ผ่าน_env(self, value, expected, monkeypatch):
+        monkeypatch.setenv("QDRANT_USE_HTTPS", value)
+        assert (value.lower() in ("1", "true", "yes")) is expected

@@ -19,11 +19,19 @@ from services import config
 
 
 def get_client() -> QdrantClient:
-    """สร้าง connection ใหม่ไปยัง Qdrant"""
+    """
+    สร้าง connection ใหม่ไปยัง Qdrant
+
+    ต้องระบุ https ชัดเจน เพราะ qdrant-client เปิด HTTPS ให้อัตโนมัติเมื่อมี api_key
+    (สมมติว่าถ้าใช้ key ก็คงส่งผ่านเน็ตจริงจึงควรเข้ารหัส)
+    แต่ Qdrant ใน Docker ไม่ได้เปิด TLS เพราะคุยกันในเครือข่ายภายในเท่านั้น
+    ทำให้ได้ error "SSL: WRONG_VERSION_NUMBER" ตอน deploy ที่มีการตั้ง API key
+    """
     return QdrantClient(
         host=config.QDRANT_HOST,
         port=config.QDRANT_PORT,
         api_key=config.QDRANT_API_KEY,
+        https=config.QDRANT_USE_HTTPS,
     )
 
 

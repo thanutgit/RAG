@@ -25,6 +25,9 @@ QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT = int(os.getenv("QDRANT_HTTP_PORT", "6333"))
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY") or None
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "obsidian_notes")
+# qdrant-client เปิด HTTPS เองเมื่อมี api_key ซึ่งใช้ไม่ได้กับ Qdrant ใน Docker
+# ที่ไม่ได้ตั้ง TLS — ต้องปิดชัดเจน ยกเว้นมี reverse proxy คั่นอยู่จริง
+QDRANT_USE_HTTPS = os.getenv("QDRANT_USE_HTTPS", "false").lower() in ("1", "true", "yes")
 
 # ---------- PostgreSQL ----------
 PG_CONFIG = {

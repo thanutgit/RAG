@@ -29,6 +29,8 @@ services:
       QDRANT_HTTP_PORT: 6333
       QDRANT_API_KEY: ${QDRANT_API_KEY:?ต้องตั้ง API key ตอน deploy จริง}
       QDRANT_COLLECTION: ${QDRANT_COLLECTION:-obsidian_notes}
+      # ปิด HTTPS เพราะ api กับ qdrant คุยกันในเครือข่ายภายในของ Docker
+      QDRANT_USE_HTTPS: ${QDRANT_USE_HTTPS:-false}
 
       # บังคับตั้ง API key ตอน deploy — ระบบเปิดโล่งอันตรายเกินไป
       API_KEYS: ${API_KEYS:?ต้องตั้ง API_KEYS ก่อน deploy สร้างด้วย python -m services.auth}
