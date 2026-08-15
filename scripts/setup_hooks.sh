@@ -19,8 +19,23 @@ cat > "$HOOK" << 'HOOK_EOF'
 # จัดรูปแบบโค้ดอัตโนมัติ แล้วตรวจ lint ก่อน commit
 # ข้ามได้ด้วย: git commit --no-verify
 
-if ! command -v ruff >/dev/null 2>&1; then
-    echo "ไม่พบ ruff — ข้ามการตรวจ (ติดตั้งด้วย pip install ruff)"
+# หา ruff ให้เจอแม้ยังไม่ได้ activate venv
+# เพราะ git commit มักรันในเทอร์มินัลที่ยังไม่ได้ activate
+RUFF=""
+for candidate in \
+    "$(git rev-parse --show-toplevel)/.venv/bin/ruff" \
+    "$(git rev-parse --show-toplevel)/venv/bin/ruff" \
+    "$(command -v ruff 2>/dev/null)"
+do
+    if [ -x "$candidate" ]; then
+        RUFF="$candidate"
+        break
+    fi
+done
+
+if [ -z "$RUFF" ]; then
+    echo "ไม่พบ ruff — ข้ามการตรวจ"
+    echo "ติดตั้งด้วย: pip install ruff"
     exit 0
 fi
 
@@ -29,20 +44,20 @@ FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.py$' || tru
 [ -z "$FILES" ] && exit 0
 
 echo "จัดรูปแบบโค้ด..."
-echo "$FILES" | xargs ruff format -q
+echo "$FILES" | xargs "$RUFF" format -q
 
 echo "แก้ lint ที่แก้อัตโนมัติได้..."
-echo "$FILES" | xargs ruff check --fix -q || true
+echo "$FILES" | xargs "$RUFF" check --fix -q || true
 
 # เพิ่มไฟล์ที่เพิ่งถูกแก้กลับเข้า stage ไม่งั้นจะ commit ของเก่าไป
 echo "$FILES" | xargs git add
 
 # ตรวจรอบสุดท้าย — ที่เหลือคือปัญหาที่ต้องแก้เอง
-if ! echo "$FILES" | xargs ruff check -q 2>/dev/null; then
+if ! echo "$FILES" | xargs "$RUFF" check -q 2>/dev/null; then
     echo ""
     echo "❌ ยังมีปัญหาที่แก้อัตโนมัติไม่ได้:"
     echo ""
-    echo "$FILES" | xargs ruff check --output-format=concise
+    echo "$FILES" | xargs "$RUFF" check --output-format=concise
     echo ""
     echo "แก้แล้ว commit ใหม่ หรือข้ามด้วย git commit --no-verify"
     exit 1
