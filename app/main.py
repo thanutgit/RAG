@@ -84,16 +84,29 @@ class QueryResponse(BaseModel):
 
 @app.get("/health")
 def health_check():
-    """เช็คว่า service พร้อมใช้งาน และเชื่อมต่อ Qdrant ได้จริง"""
+    """
+    เช็คว่า service พร้อมใช้งาน
+
+    "พร้อมใช้งาน" = ต่อ Qdrant ได้ ไม่ใช่ "มีข้อมูลแล้ว"
+    ระบบที่เพิ่ง deploy ยังไม่มี collection ถือว่าปกติ ไม่ใช่ระบบเสีย
+    ถ้าตีความว่าเสีย จะ deploy ไม่ผ่านตลอดกาล เพราะต้องมีข้อมูลก่อนถึงจะ healthy
+    แต่จะ ingest ได้ก็ต้อง deploy ผ่านก่อน
+    """
     try:
         client = qdrant_service.get_client()
-        chunk_count = qdrant_service.count(client)
+        # เรียก get_collections แทน count เพราะไม่ต้องมี collection อยู่ก่อน
+        collections = {c.name for c in client.get_collections().collections}
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"เชื่อมต่อ Qdrant ไม่ได้: {e}") from e
+
+    indexed = config.QDRANT_COLLECTION in collections
+    chunk_count = qdrant_service.count(client) if indexed else 0
 
     return {
         "status": "ok",
         "chunks_in_db": chunk_count,
+        # บอกว่ายังไม่เคย ingest — frontend เอาไปแสดงคำแนะนำได้
+        "indexed": indexed,
         # frontend ใช้ค่านี้ตัดสินใจว่าต้องแสดงช่องกรอก API key หรือไม่
         "auth_required": auth.is_auth_enabled(),
     }

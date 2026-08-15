@@ -424,7 +424,11 @@ async function checkHealth(){
     if(!r.ok) throw new Error();
     const d = await r.json();
     $('#count').textContent = d.chunks_in_db.toLocaleString('th-TH');
-    status.innerHTML = '<span class="dot ok"></span>เชื่อมต่อแล้ว';
+
+    /* ระบบที่เพิ่ง deploy ยังไม่มีข้อมูล บอกให้ผู้ใช้รู้ว่าต้องกดซิงก์ก่อน */
+    status.innerHTML = d.indexed === false
+      ? '<span class="dot ok"></span>เชื่อมต่อแล้ว · ยังไม่มีข้อมูล กดซิงก์ก่อน'
+      : '<span class="dot ok"></span>เชื่อมต่อแล้ว';
 
     if(d.auth_required){
       $('#keySection').hidden = false;
