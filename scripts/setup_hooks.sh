@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 #
 # scripts/setup_hooks.sh
-# ติดตั้ง git hook ที่ตรวจ lint และ format ก่อน commit
+# ติดตั้ง git hook ที่จัดรูปแบบและตรวจโค้ดก่อน commit
 #
-# ทำไมต้องมี: CI ตรวจ ruff อยู่แล้ว แต่กว่าจะรู้ว่าแดงต้องรอ push แล้วรอ CI อีก 3 นาที
-# hook ตรวจให้ในเครื่องภายในวินาทีเดียว แก้แล้ว commit ใหม่ได้ทันที
+# ทำไมทำที่เครื่องไม่ใช่ที่ CI:
+#   CI ควรตรวจ ไม่ควรแก้ — ถ้า CI แก้แล้ว commit กลับ โค้ดในเครื่องกับบน repo
+#   จะไม่ตรงกัน ต้อง pull ทุกครั้ง และ commit จาก bot ทำให้อ่าน history ยาก
+#   hook ที่เครื่องแก้ให้ทันทีก่อน commit จึงตรงจุดกว่า
 #
 # รันครั้งเดียวหลัง clone: bash scripts/setup_hooks.sh
 
@@ -14,30 +16,35 @@ HOOK=".git/hooks/pre-commit"
 
 cat > "$HOOK" << 'HOOK_EOF'
 #!/usr/bin/env bash
-# ตรวจโค้ดก่อน commit — ข้ามได้ด้วย git commit --no-verify ถ้าจำเป็นจริง ๆ
+# จัดรูปแบบโค้ดอัตโนมัติ แล้วตรวจ lint ก่อน commit
+# ข้ามได้ด้วย: git commit --no-verify
 
 if ! command -v ruff >/dev/null 2>&1; then
     echo "ไม่พบ ruff — ข้ามการตรวจ (ติดตั้งด้วย pip install ruff)"
     exit 0
 fi
 
-echo "ตรวจ format..."
-if ! ruff format --check . >/dev/null 2>&1; then
-    echo ""
-    echo "❌ โค้ดยังไม่ได้จัดรูปแบบ"
-    echo "   แก้ด้วย: ruff format . && git add -u"
-    echo ""
-    ruff format --check . 2>&1 | tail -20
-    exit 1
-fi
+# ทำเฉพาะไฟล์ .py ที่ stage ไว้ ไม่ไปยุ่งกับไฟล์อื่นที่ยังแก้ค้างอยู่
+FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.py$' || true)
+[ -z "$FILES" ] && exit 0
 
-echo "ตรวจ lint..."
-if ! ruff check . >/dev/null 2>&1; then
+echo "จัดรูปแบบโค้ด..."
+echo "$FILES" | xargs ruff format -q
+
+echo "แก้ lint ที่แก้อัตโนมัติได้..."
+echo "$FILES" | xargs ruff check --fix -q || true
+
+# เพิ่มไฟล์ที่เพิ่งถูกแก้กลับเข้า stage ไม่งั้นจะ commit ของเก่าไป
+echo "$FILES" | xargs git add
+
+# ตรวจรอบสุดท้าย — ที่เหลือคือปัญหาที่ต้องแก้เอง
+if ! echo "$FILES" | xargs ruff check -q 2>/dev/null; then
     echo ""
-    echo "❌ พบปัญหาจาก lint"
-    echo "   แก้อัตโนมัติ: ruff check --fix . && git add -u"
+    echo "❌ ยังมีปัญหาที่แก้อัตโนมัติไม่ได้:"
     echo ""
-    ruff check . --output-format=concise 2>&1 | head -20
+    echo "$FILES" | xargs ruff check --output-format=concise
+    echo ""
+    echo "แก้แล้ว commit ใหม่ หรือข้ามด้วย git commit --no-verify"
     exit 1
 fi
 
@@ -45,6 +52,15 @@ echo "ผ่าน"
 HOOK_EOF
 
 chmod +x "$HOOK"
-echo "ติดตั้ง pre-commit hook แล้วที่ $HOOK"
-echo "ทดสอบ: git commit จะตรวจ ruff ให้อัตโนมัติ"
-echo "ข้ามชั่วคราว: git commit --no-verify"
+
+cat << 'MSG'
+ติดตั้ง pre-commit hook เรียบร้อย
+
+ทุกครั้งที่ git commit จะ:
+  1. จัดรูปแบบไฟล์ .py ที่ stage ไว้ให้อัตโนมัติ
+  2. แก้ lint ที่แก้ได้เอง
+  3. เพิ่มไฟล์ที่แก้แล้วกลับเข้า commit
+  4. หยุดถ้ายังมีปัญหาที่ต้องแก้เอง
+
+ข้ามชั่วคราว: git commit --no-verify
+MSG
